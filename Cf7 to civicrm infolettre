@@ -113,6 +113,114 @@ function envoyer_inscription_infolettre_civicrm( $contact_form ) {
 
     // --- 3. Ajouter le contact au groupe Infolettre ---
     $params_groupe = array(
+        'records' => array(
+            array(
+                'contact_id' => $contact_id,
+                'group_id'   => $id_groupe_infolettre,
+                'status'     => 'Added',
+            ),
+        ),
+        'match' => array( 'contact_id', 'group_id' ),
+    );
+
+    $reponse_groupe = wp_remote_post( $civicrm_domaine . '/civicrm/ajax/api4/GroupContact/save', array(
+        'method'  => 'POST',
+        'timeout' => 15,
+        'headers' => array(
+            'X-Civi-Auth' => 'Bearer ' . $api_key,
+        ),
+        'body'    => array(
+            'params' => wp_json_encode( $params_groupe ),
+        ),
+    ) );
+
+    if ( is_wp_error( $reponse_groupe ) ) {
+        error_log( 'Erreur ajout au groupe CiviCRM : ' . $reponse_groupe->get_error_message() );
+    } else {
+        $code = wp_remote_retrieve_response_code( $reponse_groupe );
+        if ( $code !== 200 ) {
+            error_log( 'CiviCRM (groupe) a répondu avec le code ' . $code . ' : ' . wp_remote_retrieve_body( $reponse_groupe ) );
+        }
+    }
+}        return;
+    }
+
+    // --- Configuration CiviCRM (confirmée) ---
+    $civicrm_domaine = 'https://civicrm.mobnationale.org';
+    $api_key         = defined( 'CIVICRM_API_KEY_INFOLETTRE' ) ? CIVICRM_API_KEY_INFOLETTRE : '';
+    $id_groupe_infolettre = 3;
+
+    if ( empty( $api_key ) ) {
+        error_log( 'CF7 vers CiviCRM : la constante CIVICRM_API_KEY_INFOLETTRE n\'est pas définie dans wp-config.php' );
+        return;
+    }
+
+    // Séparer le nom complet en prénom / nom
+    $parties_nom = explode( ' ', $nom, 2 );
+    $prenom      = $parties_nom[0] ?? '';
+    $nom_famille = $parties_nom[1] ?? '';
+
+    // --- 1. Créer ou mettre à jour le contact (par courriel, anti-doublon) ---
+    $params_contact = array(
+        'records' => array(
+            array(
+                'first_name'   => $prenom,
+                'last_name'    => $nom_famille,
+                'contact_type' => 'Individual',
+                'custom_1'     => $etablissement, // <-- à confirmer/ajuster selon ta vérification
+                'email_primary.email' => $courriel,
+            ),
+        ),
+        'match' => array( 'email' ),
+    );
+
+    $reponse_contact = wp_remote_post( $civicrm_domaine . '/civicrm/ajax/api4/Contact/save', array(
+        'method'  => 'POST',
+        'timeout' => 15,
+        'headers' => array(
+            'X-Civi-Auth' => 'Bearer ' . $api_key,
+        ),
+        'body'    => array(
+            'params' => wp_json_encode( $params_contact ),
+        ),
+    ) );
+
+    if ( is_wp_error( $reponse_contact ) ) {
+        error_log( 'Erreur création contact CiviCRM : ' . $reponse_contact->get_error_message() );
+        return;
+    }
+
+    $corps_reponse = json_decode( wp_remote_retrieve_body( $reponse_contact ), true );
+    $contact_id = $corps_reponse['values'][0]['id'] ?? null;
+
+    if ( ! $contact_id ) {
+        error_log( 'Impossible de récupérer l\'ID du contact CiviCRM : ' . wp_remote_retrieve_body( $reponse_contact ) );
+        return;
+    }
+
+    // --- 2. Ajouter l'email au contact (si pas déjà présent) ---
+    $params_email = array(
+        'values' => array(
+            'contact_id' => $contact_id,
+            'email'      => $courriel,
+            'is_primary' => true,
+        ),
+        'match' => array( 'contact_id', 'email' ),
+    );
+
+    wp_remote_post( $civicrm_domaine . '/civicrm/ajax/api4/Email/create', array(
+        'method'  => 'POST',
+        'timeout' => 15,
+        'headers' => array(
+            'X-Civi-Auth' => 'Bearer ' . $api_key,
+        ),
+        'body'    => array(
+            'params' => wp_json_encode( $params_email ),
+        ),
+    ) );
+
+    // --- 3. Ajouter le contact au groupe Infolettre ---
+    $params_groupe = array(
         'values' => array(
             'contact_id' => $contact_id,
             'group_id'   => $id_groupe_infolettre,
